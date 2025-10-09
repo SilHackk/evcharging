@@ -10,55 +10,59 @@ connected_clients = {}
 
 
 def handle_client(conn, addr):
-    """Handles communication with a single client."""
-    print(f"[NEW CONNECTION] {addr} connected.")
-    connected_clients[addr] = conn
+    print(f"[NEW CONNECTION] {addr}")
+    cp_id = None
 
     try:
         while True:
             data = conn.recv(1024)
             if not data:
-                break  # Client disconnected
+                break
 
-            message = data.decode('utf-8').strip()
-            print(f"[{addr}] Message: {message}")
+            message = data.decode().strip()
+            print(f"[{addr}] {message}")
 
-            # Handle different message types
-            if "i'm alive" in message.lower():
-                print(f"[{addr}] Heartbeat received.")
-                conn.sendall(b"Central: Alive received")
-
-            elif "register" in message.lower():
-                print(f"[{addr}] Registration attempt.")
+            if "register" in message.lower():
+                cp_id = message.split(":")[0].strip()
+                connected_clients[addr] = (conn, cp_id)
+                print(f"[{addr}] Registered as {cp_id}")
                 conn.sendall(b"Central: Registration successful")
+
+            elif "alive" in message.lower():
+                conn.sendall(b"Central: Alive received")
 
             elif "request charge" in message.lower():
                 print(f"[{addr}] Driver requested charging.")
+                conn.sendall(b"Central: Charging request received. Searching for available CP...")
+
+                # Choose a CP (hardcoded example)
+                assigned_cp = "CP_001"
+                send_command_to_cp(assigned_cp, "start charging")
+
                 conn.sendall(
-                    b"Central: Charging request received. "
-                    b"Searching for available CP..."
+                    f"Central: Charging Point {assigned_cp} assigned and started.".encode("utf-8")
                 )
 
-                # Simulate assigning a charging point
-                # (In a real system you'd query Kafka, a DB, etc.)
-                conn.sendall(b"Central: Charging Point CP-01 assigned. Proceed to location.")
-
             elif "cancel" in message.lower():
-                print(f"[{addr}] Driver cancelled the request.")
-                conn.sendall(b"Central: Request cancelled. Goodbye!")
+                conn.sendall(b"Central: Request cancelled.")
+                break
 
             else:
-                print(f"[{addr}] Unknown command: {message}")
-                conn.sendall(b"Central: Unknown command. Try 'register', 'request charge', or 'cancel'.")
+                conn.sendall(b"Central: Unknown command.")
 
-    except ConnectionResetError:
-        print(f"[ERROR] Connection with {addr} reset by peer.")
-    except Exception as e:
-        print(f"[ERROR] Exception handling {addr}: {e}")
     finally:
-        print(f"[DISCONNECT] Connection closed for {addr}")
+        print(f"[DISCONNECT] {addr}")
         conn.close()
         connected_clients.pop(addr, None)
+
+def start_charging_for_cp(cp_id):
+    """Send 'start charging' command to the registered CP."""
+    for conn, cid in connected_clients.values():
+        if cid == cp_id:
+            print(f"[CENTRAL] Sending start command to {cp_id}")
+            conn.sendall(b"start charging")
+            return
+    print(f"[CENTRAL] No CP with ID {cp_id} found.")
 
 def start_server():
     """Starts the EV_Central socket server."""
@@ -73,6 +77,16 @@ def start_server():
             thread = threading.Thread(target=handle_client, args=(conn, addr))
             thread.start()
             print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
+
+def send_command_to_cp(cp_id: str, command: str):
+    """Send a command (like 'start charging' or 'stop') to a registered CP."""
+    for conn, cid in connected_clients.values():
+        if cid == cp_id:
+            print(f"[CENTRAL] Sending '{command}' to {cp_id}")
+            conn.sendall(command.encode('utf-8'))
+            return True
+    print(f"[CENTRAL] No CP with ID {cp_id} found.")
+    return False
 
 if __name__ == "__main__":
     start_server()

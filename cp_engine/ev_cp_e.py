@@ -1,10 +1,35 @@
 import socket
 import time
+import threading
 
 # Configuration
 CENTRAL_HOST = '127.0.0.1'  # IP address of the Central Server
 CENTRAL_PORT = 65432        # Port of the Central Server
 CP_ID = "CP_001"            # Unique ID for this Charging Point
+
+stop_flag = threading.Event()
+
+def listen_to_central(sock):
+    """Background listener for Central commands."""
+    while not stop_flag.is_set():
+        try:
+            data = sock.recv(1024)
+            if not data:
+                break
+            msg = data.decode().strip()
+            print(f"[CENTRAL CMD] {msg}")
+
+            if "start charging" in msg.lower():
+                print("[CP] Charging... ⚡")
+
+            elif "stop" in msg.lower():
+                print("[CP] Stopping charge.")
+                stop_flag.set()
+                break
+
+        except Exception as e:
+            print(f"[CP ERROR] Listener: {e}")
+            break
 
 def start_cp_engine():
     """Connects to Central, registers, and starts sending 'I'm alive' messages."""
@@ -22,8 +47,13 @@ def start_cp_engine():
             s.sendall(reg_message.encode('utf-8'))
 
             # Wait for and print registration acknowledgement
+            # After receiving Central's response to registration
             ack_data = s.recv(1024)
             print(f"Central Response: {ack_data.decode('utf-8')}")
+
+            # Start listening for Central commands in the background
+            threading.Thread(target=listen_to_central, args=(s,), daemon=True).start()
+
 
             # 2. Start sending "I'm alive" messages (Goal part)
             while True:
