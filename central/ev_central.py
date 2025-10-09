@@ -2,54 +2,77 @@ import socket
 import threading
 
 # Configuration
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
-PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
+HOST = '127.0.0.1'  # localhost
+PORT = 65432        # non-privileged port
+
+# Optional: keep track of connected clients
+connected_clients = {}
+
 
 def handle_client(conn, addr):
     """Handles communication with a single client."""
-    print(f"Connected by {addr}")
+    print(f"[NEW CONNECTION] {addr} connected.")
+    connected_clients[addr] = conn
+
     try:
         while True:
-            # Receive data from the client
             data = conn.recv(1024)
             if not data:
-                break # Connection closed by client
+                break  # Client disconnected
 
-            message = data.decode('utf-8')
-            print(f"[{addr}] Received: {message}")
+            message = data.decode('utf-8').strip()
+            print(f"[{addr}] Message: {message}")
 
-            # Check for the registration or "I'm alive" message
-            if "I'm alive" in message:
-                print(f"[{addr}] Acknowledging 'I'm alive'.")
+            # Handle different message types
+            if "i'm alive" in message.lower():
+                print(f"[{addr}] Heartbeat received.")
                 conn.sendall(b"Central: Alive received")
+
             elif "register" in message.lower():
-                print(f"[{addr}] Registration attempt received.")
+                print(f"[{addr}] Registration attempt.")
                 conn.sendall(b"Central: Registration successful")
 
+            elif "request charge" in message.lower():
+                print(f"[{addr}] Driver requested charging.")
+                conn.sendall(
+                    b"Central: Charging request received. "
+                    b"Searching for available CP..."
+                )
+
+                # Simulate assigning a charging point
+                # (In a real system you'd query Kafka, a DB, etc.)
+                conn.sendall(b"Central: Charging Point CP-01 assigned. Proceed to location.")
+
+            elif "cancel" in message.lower():
+                print(f"[{addr}] Driver cancelled the request.")
+                conn.sendall(b"Central: Request cancelled. Goodbye!")
+
+            else:
+                print(f"[{addr}] Unknown command: {message}")
+                conn.sendall(b"Central: Unknown command. Try 'register', 'request charge', or 'cancel'.")
+
     except ConnectionResetError:
-        print(f"Connection with {addr} reset by peer.")
+        print(f"[ERROR] Connection with {addr} reset by peer.")
     except Exception as e:
-        print(f"Error handling client {addr}: {e}")
+        print(f"[ERROR] Exception handling {addr}: {e}")
     finally:
-        print(f"Connection closed for {addr}")
+        print(f"[DISCONNECT] Connection closed for {addr}")
         conn.close()
+        connected_clients.pop(addr, None)
 
 def start_server():
     """Starts the EV_Central socket server."""
-    print(f"Starting EV_Central server on {HOST}:{PORT}...")
+    print(f"[STARTING] EV_Central server on {HOST}:{PORT}")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
         s.listen()
-        print("Server is listening for connections...")
+        print("[LISTENING] Server ready for connections...")
 
         while True:
-            # Accept a new connection
             conn, addr = s.accept()
-            # Start a new thread to handle the client connection
-            client_thread = threading.Thread(target=handle_client, args=(conn, addr))
-            client_thread.start()
+            thread = threading.Thread(target=handle_client, args=(conn, addr))
+            thread.start()
+            print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
 
 if __name__ == "__main__":
-    # To run this, save it as a file (e.g., ev_central.py) and execute:
-    # python ev_central.py
     start_server()
