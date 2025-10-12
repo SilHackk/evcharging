@@ -1,0 +1,5 @@
+# Start the Kafka and Zookeeper containers in the background
+docker-compose up -d
+
+# Install the required Python library
+pip install -r requirements.txt
